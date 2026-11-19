@@ -1,0 +1,42 @@
+#!/bin/bash
+set -eu
+umask 077
+appdir=$(realpath -- "${TRIM_APPDEST:?}")
+vardir=${TRIM_PKGVAR:?}
+export PATH="$appdir/runtime/bin:$PATH"
+export PYTHONPATH="$appdir/runtime/python"
+export LD_LIBRARY_PATH="$appdir/runtime/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export XDG_DATA_DIRS="$appdir/runtime/share:/usr/local/share:/usr/share"
+export LANG=C.UTF-8
+pidfile="$vardir/service.pid"
+running() {
+    [[ -f "$pidfile" ]] || return 1
+    read -r pid < "$pidfile"
+    [[ "$pid" =~ ^[0-9]+$ && -r /proc/$pid/cmdline ]] || return 1
+    tr '\0' '\n' < "/proc/$pid/cmdline" | grep -qxF -e "$appdir/native/entry.py" -e "$appdir/native/bootstrap.py" -e "$appdir/native/server.py"
+}
+case "$1" in
+  start)
+    running && exit 0
+    mkdir -p "$vardir"
+    rm -f "$appdir/app.sock"
+    /usr/bin/python3 "$appdir/native/entry.py" >> "$vardir/native.log" 2>&1 < /dev/null &
+    pid=$!
+    echo "$pid" > "$pidfile"
+    for ((i=0; i<80; i++)); do
+        kill -0 "$pid" 2>/dev/null || exit 1
+        [[ -S "$appdir/app.sock" ]] && exit 0
+        sleep .1
+    done
+    kill "$pid" 2>/dev/null || true
+    exit 1 ;;
+  stop)
+    if running; then
+        kill "$pid"
+        for ((i=0; i<100; i++)); do running || break; sleep .1; done
+        running && exit 1
+    fi
+    rm -f "$pidfile" "$appdir/app.sock" ;;
+  status) running || exit 3 ;;
+  *) exit 1 ;;
+esac

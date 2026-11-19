@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+client=$1
+exec 3>"$XDG_RUNTIME_DIR/display"
+# Use a fresh cookie for the chosen local X display.
+cookie=$(mcookie)
+touch "$XAUTHORITY"
+for ((i=0; i<20; i++)); do
+    n=$((1000 + RANDOM % 20000))
+    if [[ ! -e /tmp/.X11-unix/X$n && ! -e /tmp/.X$n-lock ]]; then break; fi
+done
+export DISPLAY=:$n
+xauth -f "$XAUTHORITY" add "$DISPLAY" . "$cookie"
+Xtigervnc "$DISPLAY" -displayfd 3 -auth "$XAUTHORITY" -geometry 1280x800 -depth 24 \
+    -nolisten tcp -rfbport -1 -rfbunixpath "$XDG_RUNTIME_DIR/vnc" -rfbunixmode 0600 -SecurityTypes None &
+xserver=$!
+trap 'kill "$xserver" "${qqpid:-}" "${wmpid:-}" 2>/dev/null || true' EXIT
+for ((i=0; i<80; i++)); do
+    [[ -s "$XDG_RUNTIME_DIR/display" ]] && break
+    kill -0 "$xserver" || exit 1
+    sleep .1
+done
+[[ -s "$XDG_RUNTIME_DIR/display" ]]
+if command -v openbox >/dev/null; then openbox & wmpid=$!; fi
+"$client" --user-data-dir="$HOME/client-data" --ozone-platform=x11 --disable-gpu &
+qqpid=$!
+wait -n "$qqpid" "$xserver"

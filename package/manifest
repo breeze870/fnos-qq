@@ -1,0 +1,10 @@
+appname = fnos-qq
+version = 0.1.0
+display_name = QQ
+desc = 在飞牛桌面运行 Linux QQ，点击账号图标切换独立桌面。
+platform = x86
+source = thirdparty
+maintainer = breeze870
+distributor = breeze870
+desktop_uidir = ui
+desktop_applaunchname = fnos-qq.Application

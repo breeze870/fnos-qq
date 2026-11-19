@@ -1,0 +1,22 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QQ</title><style>{{SCREEN_CSS}}</style></head><body class="bay"><main class="workspace"><aside class="rail"><div class="brand"><img src="{{PENGUIN_URI}}" alt=""><b>QQ</b></div><nav class="accounts" aria-label="账号"></nav><button class="add" id="add" aria-label="添加账号" title="添加账号"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><span>添加账号</span></button></aside><section class="desk-area"><header class="toolbar"><strong id="activeName">账号桌面</strong><button class="stop" id="stop" hidden>停止此桌面</button></header><div class="stage"><div id="desktop" aria-label="当前 QQ 桌面"></div><p id="message" class="message" role="status" hidden></p></div></section></main><script>{{NOVNC_BUNDLE}}</script><script>
+const root='/app/fnos-qq', nav=document.querySelector('nav'),screenBox=document.querySelector('#desktop'),msg=document.querySelector('#message'),stopBtn=document.querySelector('#stop');
+let rfb=null;let current='', rows=[], busy=false;
+function notice(s=''){msg.textContent=s;msg.hidden=!s}
+async function api(data){
+  if(!data){const r=await fetch(root+'/accounts',{cache:'no-store'});if(!r.ok)throw Error('读取账号列表失败');return r.json()}
+  return new Promise((resolve,reject)=>{
+    const ws=new WebSocket((location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+root+'/control');
+    const timer=setTimeout(()=>{ws.close();reject(Error('操作超时，请刷新账号列表'))},15000);
+    ws.onopen=()=>ws.send(JSON.stringify({...data,csrf:'__CSRF_TOKEN__'}));
+    ws.onmessage=e=>{clearTimeout(timer);const result=JSON.parse(e.data);ws.close();result.error?reject(Error(result.error)):resolve(result)};
+    ws.onclose=()=>{clearTimeout(timer);reject(Error('控制连接已关闭，请重试'))};
+  });
+}
+function draw(){document.querySelector("#activeName").textContent = rows.find(r => r.id === current)?.name || "账号桌面";nav.replaceChildren();for(const r of rows){const b=document.createElement('button');b.className='account';b.setAttribute('aria-current',r.id===current);b.title=r.name+' · '+r.status;b.setAttribute('aria-label',b.title);const badge=document.createElement('span');badge.className='badge';badge.textContent=String(Number(r.id)+1);const box=document.createElement('span');box.className='info';const name=document.createElement('strong');name.className='name';name.textContent=r.name;const status=document.createElement('small');status.textContent=r.status;box.append(name,status);b.append(badge,box);b.onclick=()=>run(()=>select(r.id));nav.append(b)}stopBtn.hidden=!current||current==='0'}
+async function refresh(){rows=await api();draw()}
+async function select(id){const r=rows.find(x=>x.id===id);if(!r)return;if(r.status==='已停止')await api({action:'start',id});current=id;draw();if(rfb)rfb.disconnect();const scheme=location.protocol==='https:'?'wss:':'ws:';const client=new NoVNC.default(screenBox,scheme+'//'+location.host+root+'/ws/'+id,{wsProtocols:['binary']});rfb=client;client.scaleViewport=true;notice('正在连接…');client.addEventListener('connect',()=>{if(rfb===client)notice()});client.addEventListener('disconnect',()=>{if(rfb===client)notice('桌面连接已断开，可点击账号图标重新连接。')});await refresh()}
+async function run(f){if(busy)return;busy=true;notice();try{await f()}catch(e){notice(e.message)}finally{busy=false}}
+document.querySelector('#add').onclick=()=>run(async()=>{notice('正在创建 QQ 桌面…');const {id}=await api({action:'add'});await refresh();await select(id)});
+stopBtn.onclick=()=>run(async()=>{const r=rows.find(x=>x.id===current);if(!r||!confirm('停止「'+r.name+'」并退出此桌面的 QQ 进程？账号数据将保留。'))return;await api({action:'stop',id:r.id});await refresh();await select('0')});
+run(async()=>{await refresh();await select('0')});setInterval(()=>{if(!busy)refresh().catch(()=>{})},6000);
+</script></body></html>
